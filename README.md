@@ -215,6 +215,33 @@ JSON::Validator.validate(schema, {}, :insert_defaults => true)
 JSON::Validator.validate(schema, {})
 
 #
+# with the `:data` option, the `maximum`, `minimum`, `maxLength` and `maxItems` keywords may take
+# their limit from the instance being validated, using an absolute JSON Pointer (RFC 6901)
+#
+
+data_schema = {
+  "type" => "object",
+  "properties" => {
+    "limit" => { "type" => "integer" },
+    "items" => { "type" => "array", "maxItems" => { "$data" => "/limit" } }
+  }
+}
+
+# => true
+JSON::Validator.validate(data_schema, { "limit" => 2, "items" => [1, 2] }, :data => true)
+# => false
+JSON::Validator.validate(data_schema, { "limit" => 1, "items" => [1, 2] }, :data => true)
+# => ["The property '#/items' could not be validated against the 'maxItems' constraint because the referenced data '/limit' does not exist ..."]
+JSON::Validator.fully_validate(data_schema, { "items" => [1, 2] }, :data => true)
+
+The pointer is always resolved against the root of the instance being validated, even when the
+`$data` keyword sits inside a `$ref` target or an `items` subschema, and it is resolved against a
+snapshot of the original input, so inserted defaults are never visible to it. A referenced value
+that is missing, `null`, of the wrong type, or a negative length produces its own validation error
+naming both the constraint and the referenced data path. Without the `:data` option, schemas using
+`$data` are rejected by schema validation as before.
+
+#
 # with the `:version` option, schemas conforming to older drafts of the json schema spec can be used
 #
 

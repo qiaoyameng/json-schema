@@ -30,6 +30,7 @@ module JSON
       strict: false,
       allPropertiesRequired: false,
       noAdditionalProperties: false,
+      data: false,
       parse_data: true,
       parse_integer: true,
     }
@@ -50,6 +51,7 @@ module JSON
 
       @validation_options = @options[:record_errors] ? { record_errors: true } : {}
       @validation_options[:insert_defaults] = true if @options[:insert_defaults]
+      @validation_options[:data] = true if @options[:data]
       if @options[:strict] == true
         @validation_options[:allPropertiesRequired] = true
         @validation_options[:noAdditionalProperties] = true
@@ -65,7 +67,9 @@ module JSON
       # validate the schema, if requested
       if @options[:validate_schema]
         # Don't clear the cache during metaschema validation!
-        meta_validator = self.class.new(@base_schema.validator.metaschema, { clear_cache: false })
+        metaschema = @base_schema.validator.metaschema
+        metaschema = JSON::Schema::DataPointer.extend_metaschema(metaschema) if @options[:data]
+        meta_validator = self.class.new(metaschema, { clear_cache: false })
         meta_validator.validate(@base_schema.schema)
       end
 
@@ -138,7 +142,14 @@ module JSON
       original_data = data
       data = initialize_data(data)
       error_recorder = with_errors
-      @base_schema.validate(data, [], error_recorder, @validation_options)
+      validation_options = @validation_options
+      if validation_options[:data]
+        # Snapshot the instance so that $data references always resolve
+        # against the original input of this validation run, unaffected by
+        # inserted defaults or other validations running concurrently.
+        validation_options = validation_options.merge(root_data: JSON::Schema::DataPointer.deep_copy(data))
+      end
+      @base_schema.validate(data, [], error_recorder, validation_options)
 
       if @options[:record_errors]
         if @options[:errors_as_objects]
@@ -293,6 +304,7 @@ module JSON
       def fully_validate_schema(schema, opts = {})
         data = schema
         schema = validator_for_name(opts[:version]).metaschema
+        schema = JSON::Schema::DataPointer.extend_metaschema(schema) if opts[:data]
         fully_validate(schema, data, opts)
       end
 
