@@ -7,8 +7,8 @@ module JSON
         'minLength'
       end
 
-      def self.error_message(schema)
-        "was not of a minimum string length of #{limit(schema)}"
+      def self.error_message(_schema, limit = limit(schema))
+        "was not of a minimum string length of #{limit}"
       end
     end
   end

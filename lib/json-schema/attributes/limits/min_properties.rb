@@ -7,8 +7,8 @@ module JSON
         'minProperties'
       end
 
-      def self.error_message(schema)
-        "did not contain a minimum number of properties #{limit(schema)}"
+      def self.error_message(_schema, limit = limit(schema))
+        "did not contain a minimum number of properties #{limit}"
       end
     end
   end

@@ -7,9 +7,9 @@ module JSON
         Numeric
       end
 
-      def self.error_message(schema)
+      def self.error_message(schema, limit = limit(schema))
         exclusivity = exclusive?(schema) ? 'exclusively' : 'inclusively'
-        format('did not have a %s value of %s, %s', limit_name, limit(schema), exclusivity)
+        format('did not have a %s value of %s, %s', limit_name, limit, exclusivity)
       end
     end
   end

@@ -7,8 +7,8 @@ module JSON
         'maxLength'
       end
 
-      def self.error_message(schema)
-        "was not of a maximum string length of #{limit(schema)}"
+      def self.error_message(_schema, limit = limit(schema))
+        "was not of a maximum string length of #{limit}"
       end
     end
   end

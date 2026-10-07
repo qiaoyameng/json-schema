@@ -7,8 +7,8 @@ module JSON
         'maxProperties'
       end
 
-      def self.error_message(schema)
-        "had more properties than the allowed #{limit(schema)}"
+      def self.error_message(_schema, limit = limit(schema))
+        "had more properties than the allowed #{limit}"
       end
     end
   end

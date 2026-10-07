@@ -7,8 +7,8 @@ module JSON
         'minItems'
       end
 
-      def self.error_message(schema)
-        "did not contain a minimum number of items #{limit(schema)}"
+      def self.error_message(_schema, limit = limit(schema))
+        "did not contain a minimum number of items #{limit}"
       end
     end
   end

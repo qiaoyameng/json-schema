@@ -14,6 +14,7 @@ require 'json-schema/errors/schema_parse_error'
 require 'json-schema/errors/json_load_error'
 require 'json-schema/errors/json_parse_error'
 require 'json-schema/util/uri'
+require 'json-schema/data_reference'
 
 module JSON
   class Validator
@@ -33,6 +34,7 @@ module JSON
       parse_data: true,
       parse_integer: true,
     }
+    @@default_opts[JSON::Schema::DataReference::OPTION_KEY] = false
     @@validators = {}
     @@default_validator = nil
     @@available_json_backends = []
@@ -43,6 +45,8 @@ module JSON
     @@mutex = Mutex.new
 
     def initialize(schema_data, opts = {})
+      opts = opts.dup
+      opts[JSON::Schema::DataReference::OPTION_KEY] = opts.delete('$data') if opts.key?('$data')
       @options = @@default_opts.clone.merge(opts)
 
       configured_validator = self.class.validator_for_name(@options[:version])
@@ -65,7 +69,17 @@ module JSON
       # validate the schema, if requested
       if @options[:validate_schema]
         # Don't clear the cache during metaschema validation!
-        meta_validator = self.class.new(@base_schema.validator.metaschema, { clear_cache: false })
+        metaschema = JSON::Validator.parse(File.read(@base_schema.validator.metaschema))
+        if @options[JSON::Schema::DataReference::OPTION_KEY] == true
+          metaschema = JSON::Schema::DataReference.augment_metaschema(metaschema)
+        end
+        meta_validator = self.class.new(
+          metaschema,
+          clear_cache: false,
+          validate_schema: false,
+          version: @options[:version] || @base_schema.validator.names.first,
+          JSON::Schema::DataReference::OPTION_KEY => false,
+        )
         meta_validator.validate(@base_schema.schema)
       end
 
@@ -138,7 +152,11 @@ module JSON
       original_data = data
       data = initialize_data(data)
       error_recorder = with_errors
-      @base_schema.validate(data, [], error_recorder, @validation_options)
+      validation_options = @validation_options.merge(
+        root_data: root_data_snapshot(data),
+        JSON::Schema::DataReference::OPTION_KEY => data_references_enabled?,
+      )
+      @base_schema.validate(data, [], error_recorder, validation_options)
 
       if @options[:record_errors]
         if @options[:errors_as_objects]
@@ -619,6 +637,21 @@ module JSON
       end
 
       schema
+    end
+
+    def data_references_enabled?
+      @options[JSON::Schema::DataReference::OPTION_KEY] == true
+    end
+
+    # Snapshot of the original instance before validation (and default
+    # insertion) mutates the working copy, so every $data pointer reads
+    # exactly what the caller passed in.
+    def root_data_snapshot(data)
+      if data_references_enabled?
+        JSON::Schema::DataReference.deep_dup(data)
+      else
+        data
+      end
     end
 
     def initialize_data(data)
