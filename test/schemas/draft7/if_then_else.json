@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/if-then-else.json",
+  "type": "object",
+  "properties": {
+    "kind": { "enum": ["business", "residential"] }
+  },
+  "required": ["kind"],
+  "if": {
+    "properties": { "kind": { "const": "business" } },
+    "required": ["kind"]
+  },
+  "then": {
+    "properties": { "department": { "type": "string" } },
+    "required": ["department"]
+  },
+  "else": {
+    "properties": { "hometown": { "type": "string" } },
+    "required": ["hometown"]
+  }
+}

@@ -20,7 +20,10 @@ module JSON
       end
 
       def validate(current_schema, data, fragments, processor, options = {})
-        current_schema.schema.each do |attr_name, _attribute|
+        schema = current_schema.schema
+        return data unless schema.is_a?(Hash)
+
+        schema.each do |attr_name, _attribute|
           if @attributes.has_key?(attr_name.to_s)
             @attributes[attr_name.to_s].validate(current_schema, data, fragments, processor, self, options)
           end

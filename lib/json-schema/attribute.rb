@@ -2,6 +2,13 @@ require 'json-schema/errors/validation_error'
 
 module JSON
   class Schema
+    # Marker used to attribute errors raised by a boolean `false` JSON schema.
+    class FalseSchema
+      def self.to_s
+        'FalseSchema'
+      end
+    end
+
     class Attribute
       def self.validate(current_schema, data, fragments, processor, validator, options = {}); end
 

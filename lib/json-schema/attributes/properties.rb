@@ -14,7 +14,7 @@ module JSON
         schema['properties'].each do |property, property_schema|
           property = property.to_s
 
-          if !data.key?(property) &&
+          if property_schema.is_a?(Hash) && !data.key?(property) &&
              options[:insert_defaults] &&
              property_schema.has_key?('default') &&
              !property_schema['readonly']
@@ -22,7 +22,7 @@ module JSON
             data[property] = default.is_a?(Hash) ? default.clone : default
           end
 
-          if required?(property_schema, options) && !data.has_key?(property)
+          if property_schema.is_a?(Hash) && required?(property_schema, options) && !data.has_key?(property)
             message = "The property '#{build_fragment(fragments)}' did not contain a required property of '#{property}'"
             validation_error(processor, message, fragments, current_schema, self, options[:record_errors])
           end

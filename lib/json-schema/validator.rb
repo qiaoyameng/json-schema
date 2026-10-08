@@ -174,6 +174,9 @@ module JSON
     def build_schemas(parent_schema)
       schema = parent_schema.schema
 
+      # Boolean schemas contain no keywords to traverse
+      return unless schema.is_a?(Hash)
+
       # Build ref schemas if they exist
       if schema['$ref']
         load_ref_schema(parent_schema, schema['$ref'])
@@ -209,8 +212,10 @@ module JSON
         end
       end
 
-      # Schema properties whose values are themselves schemas.
-      %w[additionalProperties additionalItems dependencies extends].each do |key|
+      # Schema properties whose values are themselves schemas. Their values
+      # may also be booleans, but a boolean schema can carry no nested $id,
+      # so only object values need to be traversed here.
+      %w[additionalProperties additionalItems dependencies extends propertyNames contains if then else].each do |key|
         next unless schema[key].is_a?(Hash)
 
         handle_schema(parent_schema, schema[key])
@@ -243,14 +248,14 @@ module JSON
 
     # Either load a reference schema or create a new schema
     def handle_schema(parent_schema, obj)
-      if obj.is_a?(Hash)
-        schema_uri = parent_schema.uri.dup
-        schema = JSON::Schema.new(obj, schema_uri, parent_schema.validator)
-        if obj['id']
-          self.class.add_schema(schema)
-        end
-        build_schemas(schema)
+      return unless obj.is_a?(Hash)
+
+      schema_uri = parent_schema.uri.dup
+      schema = JSON::Schema.new(obj, schema_uri, parent_schema.validator)
+      if obj['$id'] || obj['id']
+        self.class.add_schema(schema)
       end
+      build_schemas(schema)
     end
 
     class << self
@@ -613,6 +618,10 @@ module JSON
         if @options[:list] && @options[:fragment].nil?
           schema = schema.to_array_schema
         end
+        self.class.add_schema(schema)
+      elsif [true, false].include?(schema)
+        schema_uri = JSON::Util::URI.parse(fake_uuid(schema.inspect))
+        schema = JSON::Schema.new(schema, schema_uri, default_validator)
         self.class.add_schema(schema)
       else
         raise JSON::Schema::SchemaParseError, 'Invalid schema - must be either a string or a hash'
