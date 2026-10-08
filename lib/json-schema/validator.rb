@@ -30,6 +30,7 @@ module JSON
       strict: false,
       allPropertiesRequired: false,
       noAdditionalProperties: false,
+      portable_pattern: false,
       parse_data: true,
       parse_integer: true,
     }
@@ -57,10 +58,17 @@ module JSON
         @validation_options[:allPropertiesRequired] = true if @options[:allPropertiesRequired]
         @validation_options[:noAdditionalProperties] = true if @options[:noAdditionalProperties]
       end
+      @validation_options[:portable_pattern] = true if @options[:portable_pattern]
       @validation_options[:clear_cache] = true if !@@cache_schemas || @options[:clear_cache]
 
       @@mutex.synchronize { @base_schema = initialize_schema(schema_data, configured_validator) }
       @@mutex.synchronize { build_schemas(@base_schema) }
+
+      # In portable pattern mode, compile all `pattern` values and
+      # `patternProperties` keys from their ECMAScript source up front, so
+      # that unsupported syntax is reported (with its schema location) before
+      # any data is validated.
+      prepare_portable_patterns(@base_schema.schema, []) if @options[:portable_pattern]
 
       # validate the schema, if requested
       if @options[:validate_schema]
@@ -251,6 +259,39 @@ module JSON
         end
         build_schemas(schema)
       end
+    end
+
+    # Walk the schema and compile every `pattern` value and
+    # `patternProperties` key from its ECMAScript source, raising a
+    # JSON::Schema::SchemaError pointing at the schema fragment of the
+    # offending pattern when the syntax is outside the supported subset.
+    def prepare_portable_patterns(node, fragments)
+      case node
+      when Hash
+        if node['pattern'].is_a?(String)
+          prepare_portable_pattern(node['pattern'], fragments + ['pattern'])
+        end
+        if node['patternProperties'].is_a?(Hash)
+          node['patternProperties'].each_key do |key|
+            prepare_portable_pattern(key, fragments + ['patternProperties', key])
+          end
+        end
+        node.each do |key, value|
+          prepare_portable_patterns(value, fragments + [key])
+        end
+      when Array
+        node.each_with_index do |value, index|
+          prepare_portable_patterns(value, fragments + [index])
+        end
+      end
+    end
+
+    def prepare_portable_pattern(source, fragments)
+      JSON::Util::PortablePattern.compile(source)
+    rescue JSON::Util::PortablePattern::Error => e
+      fragment = "#/#{fragments.join('/')}"
+      raise JSON::Schema::SchemaError,
+            "The pattern #{source.inspect} at schema fragment '#{fragment}' is not supported in portable pattern mode: #{e.message}"
     end
 
     class << self

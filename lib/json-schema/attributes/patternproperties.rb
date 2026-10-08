@@ -7,7 +7,11 @@ module JSON
         return unless data.is_a?(Hash)
 
         current_schema.schema['patternProperties'].each do |property, property_schema|
-          regexp = Regexp.new(property)
+          regexp = if options[:portable_pattern]
+                     JSON::Util::PortablePattern.compile(property)
+                   else
+                     Regexp.new(property)
+                   end
 
           # Check each key in the data hash to see if it matches the regex
           data.each do |key, _value|

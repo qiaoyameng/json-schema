@@ -215,6 +215,34 @@ JSON::Validator.validate(schema, {}, :insert_defaults => true)
 JSON::Validator.validate(schema, {})
 
 #
+# with the `:portable_pattern` option, `pattern` values and `patternProperties` keys are
+# treated as ECMAScript (ECMA-262) regular expressions, as the JSON Schema specification
+# requires, instead of being passed directly to Ruby's Regexp (which differs on anchors,
+# `.`, `\s`, POSIX-looking classes, and more)
+#
+
+# => true (Ruby's ^ and $ are line anchors and would match)
+JSON::Validator.validate({ "pattern" => "^a$" }, "x\na\ny")
+# => false (in portable mode ^ and $ only match at the edges of the whole string)
+JSON::Validator.validate({ "pattern" => "^a$" }, "x\na\ny", :portable_pattern => true)
+
+# Portable patterns are compiled at schema preparation time through
+# JSON::Util::PortablePattern, which supports literals, character classes, groups,
+# quantifiers, alternation, the common escapes (\d \w \s \b \n \xHH \uHHHH and friends)
+# and the ^/$ anchors, all with ECMAScript semantics (unanchored search, Unicode-aware
+# \s, multi-line input unaffected by ^/$). Syntax that cannot be compiled to an
+# equivalent Ruby regexp is rejected with a JSON::Schema::SchemaError naming the
+# pattern's location in the schema; there is no silent fallback to Ruby's
+# interpretation. The rejected constructs are: lookaround groups, named groups and
+# named backreferences, backreferences, octal escapes, control escapes (\cX),
+# possessive or stacked quantifiers, \S inside a character class, and lone UTF-16
+# surrogates.
+
+# => raises JSON::Schema::SchemaError: The pattern "(a)\\1" at schema fragment
+#    '#/properties/a/pattern' is not supported in portable pattern mode: ...
+JSON::Validator.validate({ "properties" => { "a" => { "pattern" => "(a)\\1" } } }, { "a" => "aa" }, :portable_pattern => true)
+
+#
 # with the `:version` option, schemas conforming to older drafts of the json schema spec can be used
 #
 
