@@ -35,9 +35,11 @@ module JSON
           target_schema = ref_schema.schema
           fragments = JSON::Util::URI.parse(JSON::Util::URI.unescape_uri(temp_uri)).fragment.split('/')
           fragment_path = ''
+          fragment_resolved = false
           fragments.each do |fragment|
             next unless fragment && fragment != ''
 
+            fragment_resolved = true
             fragment = fragment.gsub('~0', '~').gsub('~1', '/')
             target_schema = if target_schema.is_a?(Array)
                               target_schema[fragment.to_i]
@@ -50,9 +52,16 @@ module JSON
             end
           end
 
-          # We have the schema finally, build it and validate!
           uri = temp_uri
-          schema = JSON::Schema.new(target_schema, temp_uri, validator)
+          schema = if fragment_resolved
+                     # We have the schema finally, build it and validate!
+                     JSON::Schema.new(target_schema, temp_uri, validator)
+                   else
+                     # The reference points at a registered schema itself; use it
+                     # directly so it keeps the dialect and base URI it was
+                     # registered with (e.g. via `id`/`$id`)
+                     ref_schema
+                   end
         end
 
         [uri, schema]

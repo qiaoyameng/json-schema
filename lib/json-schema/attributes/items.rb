@@ -8,7 +8,7 @@ module JSON
 
         items = current_schema.schema['items']
         case items
-        when Hash
+        when Hash, TrueClass, FalseClass
           schema = JSON::Schema.new(items, current_schema.uri, validator)
           data.each_with_index do |item, i|
             schema.validate(item, fragments + [i.to_s], processor, options)

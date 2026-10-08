@@ -134,17 +134,7 @@ draft7:
   additionalProperties: :all
   allOf: :all
   anyOf: :all
-  boolean_schema: :all
-  const: :all
-  contains: :all
-  default: :all
   definitions: :all
-  dependencies: :all
-  enum: :all
-  exclusiveMaximum: :all
-  exclusiveMinimum: :all
-  if-then-else: :all
-  items: :all
   maximum: :all
   maxItems: :all
   maxLength: :all
@@ -154,12 +144,10 @@ draft7:
   minLength: :all
   minProperties: :all
   multipleOf: :all
-  not: :all
   oneOf: :all
   pattern: :all
   patternProperties: :all
   properties: :all
-  propertyNames: :all
   ref: :all
   refRemote: :all
   required: :all

@@ -174,10 +174,8 @@ module JSON
     def build_schemas(parent_schema)
       schema = parent_schema.schema
 
-      # Build ref schemas if they exist
-      if schema['$ref']
-        load_ref_schema(parent_schema, schema['$ref'])
-      end
+      # Boolean schemas (draft 6 and later) contain no subschemas to build
+      return unless schema.is_a?(Hash)
 
       case schema['extends']
       when String
@@ -210,7 +208,9 @@ module JSON
       end
 
       # Schema properties whose values are themselves schemas.
-      %w[additionalProperties additionalItems dependencies extends].each do |key|
+      # Note that `default`, `enum` and `const` hold plain data, not schemas,
+      # and must never be traversed as subschemas.
+      %w[additionalProperties additionalItems dependencies extends if then else contains propertyNames].each do |key|
         next unless schema[key].is_a?(Hash)
 
         handle_schema(parent_schema, schema[key])
@@ -239,6 +239,14 @@ module JSON
       if schema['enum'].is_a?(Array)
         schema['enum'] = ArraySet.new(schema['enum'])
       end
+
+      # Build ref schemas if they exist. This happens after all subschemas
+      # have been traversed so that references to schemas registered via
+      # `id`/`$id` within this schema resolve locally instead of being
+      # fetched from their URI.
+      if schema['$ref']
+        load_ref_schema(parent_schema, schema['$ref'])
+      end
     end
 
     # Either load a reference schema or create a new schema
@@ -246,7 +254,7 @@ module JSON
       if obj.is_a?(Hash)
         schema_uri = parent_schema.uri.dup
         schema = JSON::Schema.new(obj, schema_uri, parent_schema.validator)
-        if obj['id']
+        if obj['id'] || obj['$id']
           self.class.add_schema(schema)
         end
         build_schemas(schema)
@@ -575,7 +583,8 @@ module JSON
     end
 
     def initialize_schema(schema, default_validator)
-      if schema.is_a?(String)
+      case schema
+      when String
         begin
           # Build a fake URI for this
           schema_uri = JSON::Util::URI.parse(fake_uuid(schema))
@@ -606,13 +615,18 @@ module JSON
             self.class.add_schema(schema)
           end
         end
-      elsif schema.is_a?(Hash)
+      when Hash
         schema_uri = JSON::Util::URI.parse(fake_uuid(serialize(schema)))
         schema = JSON::Schema.stringify(schema)
         schema = JSON::Schema.new(schema, schema_uri, default_validator)
         if @options[:list] && @options[:fragment].nil?
           schema = schema.to_array_schema
         end
+        self.class.add_schema(schema)
+      when true, false
+        # Boolean schemas are supported from draft 6 onwards
+        schema_uri = JSON::Util::URI.parse(fake_uuid(serialize(schema)))
+        schema = JSON::Schema.new(schema, schema_uri, default_validator)
         self.class.add_schema(schema)
       else
         raise JSON::Schema::SchemaParseError, 'Invalid schema - must be either a string or a hash'

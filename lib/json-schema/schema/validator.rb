@@ -20,6 +20,17 @@ module JSON
       end
 
       def validate(current_schema, data, fragments, processor, options = {})
+        # Boolean schemas, supported since draft 6, short-circuit validation:
+        # `true` validates anything, `false` validates nothing.
+        case current_schema.schema
+        when true
+          return data
+        when false
+          message = "The property '#{JSON::Schema::Attribute.build_fragment(fragments)}' of type #{JSON::Schema::Attribute.type_of_data(data)} is invalid for the boolean schema 'false'"
+          JSON::Schema::Attribute.validation_error(processor, message, fragments, current_schema, self.class, options[:record_errors])
+          return data
+        end
+
         current_schema.schema.each do |attr_name, _attribute|
           if @attributes.has_key?(attr_name.to_s)
             @attributes[attr_name.to_s].validate(current_schema, data, fragments, processor, self, options)
