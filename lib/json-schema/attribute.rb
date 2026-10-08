@@ -1,4 +1,5 @@
 require 'json-schema/errors/validation_error'
+require 'json-schema/util/portable_pattern'
 
 module JSON
   class Schema
@@ -7,6 +8,17 @@ module JSON
 
       def self.build_fragment(fragments)
         "#/#{fragments.join('/')}"
+      end
+
+      # Builds the Regexp for a JSON Schema `pattern` or `patternProperties`
+      # key. In `:portable_patterns` mode the pattern is treated as an
+      # ECMAScript pattern and compiled to an equivalent Ruby Regexp.
+      def self.pattern_regexp(pattern, options)
+        if options[:portable_patterns]
+          JSON::Util::PortablePattern.compile(pattern)
+        else
+          Regexp.new(pattern)
+        end
       end
 
       def self.validation_error(processor, message, fragments, current_schema, failed_attribute, record_errors, properties = [])

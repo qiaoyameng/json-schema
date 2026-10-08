@@ -8,7 +8,7 @@ module JSON
         schema = current_schema.schema
         return unless data.is_a?(Hash) && (schema['type'].nil? || schema['type'] == 'object')
 
-        extra_properties = remove_valid_properties(data.keys, current_schema, validator)
+        extra_properties = remove_valid_properties(data.keys, current_schema, validator, options)
 
         addprop = schema['additionalProperties']
         if addprop.is_a?(Hash)
@@ -26,7 +26,7 @@ module JSON
         end
       end
 
-      def self.remove_valid_properties(extra_properties, current_schema, validator)
+      def self.remove_valid_properties(extra_properties, current_schema, validator, options = {})
         schema = current_schema.schema
 
         if schema['properties']
@@ -34,7 +34,7 @@ module JSON
         end
 
         schema['patternProperties']&.each_key do |key|
-          regexp = Regexp.new(key)
+          regexp = pattern_regexp(key, options)
           extra_properties.reject! { |prop| regexp.match(prop) }
         end
 
@@ -43,7 +43,7 @@ module JSON
           extended_schemas.each do |schema_value|
             _, extended_schema = JSON::Schema::ExtendsAttribute.get_extended_uri_and_schema(schema_value, current_schema, validator)
             if extended_schema
-              extra_properties = remove_valid_properties(extra_properties, extended_schema, validator)
+              extra_properties = remove_valid_properties(extra_properties, extended_schema, validator, options)
             end
           end
         end

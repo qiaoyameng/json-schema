@@ -14,6 +14,7 @@ require 'json-schema/errors/schema_parse_error'
 require 'json-schema/errors/json_load_error'
 require 'json-schema/errors/json_parse_error'
 require 'json-schema/util/uri'
+require 'json-schema/util/portable_pattern'
 
 module JSON
   class Validator
@@ -32,6 +33,7 @@ module JSON
       noAdditionalProperties: false,
       parse_data: true,
       parse_integer: true,
+      portable_patterns: false,
     }
     @@validators = {}
     @@default_validator = nil
@@ -58,6 +60,7 @@ module JSON
         @validation_options[:noAdditionalProperties] = true if @options[:noAdditionalProperties]
       end
       @validation_options[:clear_cache] = true if !@@cache_schemas || @options[:clear_cache]
+      @validation_options[:portable_patterns] = true if @options[:portable_patterns]
 
       @@mutex.synchronize { @base_schema = initialize_schema(schema_data, configured_validator) }
       @@mutex.synchronize { build_schemas(@base_schema) }
@@ -171,8 +174,10 @@ module JSON
     end
 
     # Build all schemas with IDs, mapping out the namespace
-    def build_schemas(parent_schema)
+    def build_schemas(parent_schema, fragments = [])
       schema = parent_schema.schema
+
+      validate_portable_patterns(schema, fragments) if @options[:portable_patterns]
 
       # Build ref schemas if they exist
       if schema['$ref']
@@ -183,8 +188,8 @@ module JSON
       when String
         load_ref_schema(parent_schema, schema['extends'])
       when Array
-        schema['extends'].each do |type|
-          handle_schema(parent_schema, type)
+        schema['extends'].each_with_index do |type, i|
+          handle_schema(parent_schema, type, fragments + ['extends', i])
         end
       end
 
@@ -192,9 +197,9 @@ module JSON
       %w[type disallow].each do |key|
         next unless schema[key].is_a?(Array)
 
-        schema[key].each do |type|
+        schema[key].each_with_index do |type, i|
           if type.is_a?(Hash)
-            handle_schema(parent_schema, type)
+            handle_schema(parent_schema, type, fragments + [key, i])
           end
         end
       end
@@ -204,24 +209,33 @@ module JSON
       %w[definitions properties patternProperties].each do |key|
         next unless value = schema[key]
 
-        value.each do |_k, inner_schema|
-          handle_schema(parent_schema, inner_schema)
+        value.each do |k, inner_schema|
+          handle_schema(parent_schema, inner_schema, fragments + [key, k])
         end
       end
 
       # Schema properties whose values are themselves schemas.
-      %w[additionalProperties additionalItems dependencies extends].each do |key|
+      %w[additionalProperties additionalItems extends].each do |key|
         next unless schema[key].is_a?(Hash)
 
-        handle_schema(parent_schema, schema[key])
+        handle_schema(parent_schema, schema[key], fragments + [key])
+      end
+
+      # Dependencies map property names to schemas or to arrays of property
+      # names; only the schema values are schemas themselves.
+      if schema['dependencies'].is_a?(Hash)
+        schema['dependencies'].each do |k, dependency|
+          handle_schema(parent_schema, dependency, fragments + ['dependencies', k])
+        end
       end
 
       # Schema properties whose values may be an array of schemas.
       %w[allOf anyOf oneOf not].each do |key|
         next unless value = schema[key]
 
-        Array(value).each do |inner_schema|
-          handle_schema(parent_schema, inner_schema)
+        Array(value).each_with_index do |inner_schema, i|
+          inner_fragments = value.is_a?(Array) ? fragments + [key, i] : fragments + [key]
+          handle_schema(parent_schema, inner_schema, inner_fragments)
         end
       end
 
@@ -230,8 +244,9 @@ module JSON
         items = schema['items'].clone
         items = [items] unless items.is_a?(Array)
 
-        items.each do |item|
-          handle_schema(parent_schema, item)
+        items.each_with_index do |item, i|
+          inner_fragments = schema['items'].is_a?(Array) ? fragments + ['items', i] : fragments + ['items']
+          handle_schema(parent_schema, item, inner_fragments)
         end
       end
 
@@ -242,15 +257,38 @@ module JSON
     end
 
     # Either load a reference schema or create a new schema
-    def handle_schema(parent_schema, obj)
+    def handle_schema(parent_schema, obj, fragments = [])
       if obj.is_a?(Hash)
         schema_uri = parent_schema.uri.dup
         schema = JSON::Schema.new(obj, schema_uri, parent_schema.validator)
         if obj['id']
           self.class.add_schema(schema)
         end
-        build_schemas(schema)
+        build_schemas(schema, fragments)
       end
+    end
+
+    # In :portable_patterns mode, check that every `pattern` value and
+    # `patternProperties` key of the schema is a supported ECMAScript
+    # pattern, failing schema preparation with an error that points at the
+    # pattern's location in the schema.
+    def validate_portable_patterns(schema, fragments)
+      pattern = schema['pattern']
+      validate_portable_pattern(pattern, fragments + ['pattern']) if pattern.is_a?(String)
+
+      pattern_properties = schema['patternProperties']
+      return unless pattern_properties.is_a?(Hash)
+
+      pattern_properties.each_key do |key|
+        validate_portable_pattern(key, fragments + ['patternProperties', key])
+      end
+    end
+
+    def validate_portable_pattern(pattern, fragments)
+      JSON::Util::PortablePattern.compile(pattern)
+    rescue JSON::Util::PortablePattern::Error => e
+      fragment = "#/#{fragments.join('/')}"
+      raise JSON::Schema::SchemaError, "The schema contains a pattern at '#{fragment}' that is not a supported portable pattern: #{e.message}"
     end
 
     class << self
@@ -314,6 +352,7 @@ module JSON
 
       def clear_cache
         @@schemas = {}
+        JSON::Util::PortablePattern.clear_cache
       end
 
       def schemas

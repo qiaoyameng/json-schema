@@ -42,7 +42,7 @@ module JSON
           if schema.has_key?('patternProperties')
             match = false
             schema['patternProperties'].each do |property, _property_schema|
-              regexp = Regexp.new(property)
+              regexp = pattern_regexp(property, options)
               if regexp.match(k)
                 match = true
                 break

@@ -206,6 +206,15 @@ JSON::Validator.validate(schema, { "a" => 1 }, :validate_schema => true)
 JSON::Validator.validate({ "required" => true }, { "a" => 1 }, :validate_schema => true)
 
 #
+# with the `:portable_patterns` option, `pattern` and `patternProperties` are interpreted as ECMAScript regular expressions, as the json schema spec requires, instead of Ruby regular expressions; patterns outside the supported ECMAScript subset are rejected with a `JSON::Schema::SchemaError` while the schema is prepared
+#
+
+# => false (ECMAScript `^` and `$` only match at the ends of the whole string, Ruby's also match at line boundaries)
+JSON::Validator.validate({ "pattern" => "^a$" }, "b\na", :portable_patterns => true)
+# => true (without the option, patterns keep their historical Ruby meaning)
+JSON::Validator.validate({ "pattern" => "^a$" }, "b\na")
+
+#
 # with the `:insert_defaults` option, any undefined values in the json that have a default in the schema are replaced with the default before validation
 #
 
