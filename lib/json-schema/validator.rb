@@ -9,6 +9,7 @@ require 'yaml'
 require 'delegate'
 
 require 'json-schema/schema/reader'
+require 'json-schema/validation_context'
 require 'json-schema/errors/schema_error'
 require 'json-schema/errors/schema_parse_error'
 require 'json-schema/errors/json_load_error'
@@ -17,8 +18,8 @@ require 'json-schema/util/uri'
 
 module JSON
   class Validator
-    @@schemas = {}
     @@cache_schemas = true
+    @@default_context = nil
     @@default_opts = {
       list: false,
       version: nil,
@@ -40,13 +41,18 @@ module JSON
     @@serializer = nil
     @@use_multi_json = defined?(MultiJson) ? true : false
     @@multi_json_warned = false
-    @@mutex = Mutex.new
 
     def initialize(schema_data, opts = {})
       @options = @@default_opts.clone.merge(opts)
 
       configured_validator = self.class.validator_for_name(@options[:version])
-      @options[:schema_reader] ||= self.class.schema_reader
+      @validation_context = @options[:validation_context] || self.class.default_context
+      # Work on a private snapshot of the bound context. Nothing is
+      # published back unless the validator is built successfully, so a
+      # failed resource load never publishes half a schema.
+      @context = @validation_context.derive
+      @options[:schema_reader] ||= @validation_context.schema_reader
+      @context.schema_reader = @options[:schema_reader]
 
       @validation_options = @options[:record_errors] ? { record_errors: true } : {}
       @validation_options[:insert_defaults] = true if @options[:insert_defaults]
@@ -58,14 +64,15 @@ module JSON
         @validation_options[:noAdditionalProperties] = true if @options[:noAdditionalProperties]
       end
       @validation_options[:clear_cache] = true if !@@cache_schemas || @options[:clear_cache]
+      @validation_options[:validation_context] = @context
 
-      @@mutex.synchronize { @base_schema = initialize_schema(schema_data, configured_validator) }
-      @@mutex.synchronize { build_schemas(@base_schema) }
+      @base_schema = initialize_schema(schema_data, configured_validator)
+      build_schemas(@base_schema)
 
       # validate the schema, if requested
       if @options[:validate_schema]
         # Don't clear the cache during metaschema validation!
-        meta_validator = self.class.new(@base_schema.validator.metaschema, { clear_cache: false })
+        meta_validator = self.class.new(@base_schema.validator.metaschema, { clear_cache: false, validation_context: @context })
         meta_validator.validate(@base_schema.schema)
       end
 
@@ -73,6 +80,8 @@ module JSON
       if opts[:fragment]
         @base_schema = schema_from_fragment(@base_schema, opts[:fragment])
       end
+
+      @validation_context.absorb!(@context)
     end
 
     def schema_from_fragment(base_schema, fragment)
@@ -151,7 +160,7 @@ module JSON
       end
     ensure
       if @validation_options[:clear_cache] == true
-        self.class.clear_cache
+        @validation_context.clear_cache
       end
       if @validation_options[:insert_defaults]
         self.class.merge_missing_values(data, original_data)
@@ -160,13 +169,13 @@ module JSON
 
     def load_ref_schema(parent_schema, ref)
       schema_uri = JSON::Util::URI.absolutize_ref(ref, parent_schema.uri)
-      return true if self.class.schema_loaded?(schema_uri)
+      return true if @context.schema_loaded?(schema_uri)
 
       validator = self.class.validator_for_uri(schema_uri, false)
       schema_uri = JSON::Util::URI.file_uri(validator.metaschema) if validator
 
-      schema = @options[:schema_reader].read(schema_uri)
-      self.class.add_schema(schema)
+      schema = @context.schema_reader.read(schema_uri)
+      @context.add_schema(schema)
       build_schemas(schema)
     end
 
@@ -247,7 +256,7 @@ module JSON
         schema_uri = parent_schema.uri.dup
         schema = JSON::Schema.new(obj, schema_uri, parent_schema.validator)
         if obj['id']
-          self.class.add_schema(schema)
+          @context.add_schema(schema)
         end
         build_schemas(schema)
       end
@@ -304,39 +313,46 @@ module JSON
         fully_validate(schema, data, opts.merge(uri: true))
       end
 
+      # The context used by the class-level API and by validators that are
+      # not given an explicit :validation_context option.
+      def default_context
+        @@default_context ||= JSON::ValidationContext.new
+      end
+
+      def default_context=(context)
+        @@default_context = context
+      end
+
       def schema_reader
-        @@schema_reader ||= JSON::Schema::Reader.new
+        default_context.schema_reader
       end
 
       def schema_reader=(reader)
-        @@schema_reader = reader
+        default_context.schema_reader = reader
       end
 
       def clear_cache
-        @@schemas = {}
+        default_context.clear_cache
       end
 
       def schemas
-        @@schemas
+        default_context.schemas
       end
 
       def add_schema(schema)
-        @@schemas[schema_key_for(schema.uri)] ||= schema
+        default_context.add_schema(schema)
       end
 
       def schema_for_uri(uri)
-        # We only store normalized uris terminated with fragment #, so we can try whether
-        # normalization can be skipped
-        @@schemas[uri] || @@schemas[schema_key_for(uri)]
+        default_context.schema_for_uri(uri)
       end
 
       def schema_loaded?(schema_uri)
-        !schema_for_uri(schema_uri).nil?
+        default_context.schema_loaded?(schema_uri)
       end
 
       def schema_key_for(uri)
-        key = Util::URI.normalized_uri(uri).to_s
-        key.end_with?('#') ? key : "#{key}#"
+        default_context.schema_key_for(uri)
       end
 
       def cache_schemas=(val)
@@ -583,27 +599,27 @@ module JSON
           if @options[:list] && @options[:fragment].nil?
             schema = schema.to_array_schema
           end
-          self.class.add_schema(schema)
+          @context.add_schema(schema)
         rescue JSON::Schema::JsonParseError
           # Build a uri for it
           schema_uri = Util::URI.normalized_uri(schema)
-          if self.class.schema_loaded?(schema_uri)
-            schema = self.class.schema_for_uri(schema_uri)
+          if @context.schema_loaded?(schema_uri)
+            schema = @context.schema_for_uri(schema_uri)
             if @options[:list] && @options[:fragment].nil?
               schema = schema.to_array_schema
               schema.uri = JSON::Util::URI.parse(fake_uuid(serialize(schema.schema)))
-              self.class.add_schema(schema)
+              @context.add_schema(schema)
             end
             schema
           else
-            schema = @options[:schema_reader].read(schema_uri)
+            schema = @context.schema_reader.read(schema_uri)
             schema = JSON::Schema.stringify(schema)
 
             if @options[:list] && @options[:fragment].nil?
               schema = schema.to_array_schema
             end
 
-            self.class.add_schema(schema)
+            @context.add_schema(schema)
           end
         end
       elsif schema.is_a?(Hash)
@@ -613,7 +629,7 @@ module JSON
         if @options[:list] && @options[:fragment].nil?
           schema = schema.to_array_schema
         end
-        self.class.add_schema(schema)
+        @context.add_schema(schema)
       else
         raise JSON::Schema::SchemaParseError, 'Invalid schema - must be either a string or a hash'
       end

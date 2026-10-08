@@ -8,7 +8,7 @@ module JSON
         schemas = current_schema.schema['extends']
         schemas = [schemas] unless schemas.is_a?(Array)
         schemas.each do |s|
-          uri, schema = get_extended_uri_and_schema(s, current_schema, validator)
+          uri, schema = get_extended_uri_and_schema(s, current_schema, validator, options)
           if schema
             schema.validate(data, fragments, processor, options)
           elsif uri
@@ -21,14 +21,14 @@ module JSON
         end
       end
 
-      def self.get_extended_uri_and_schema(s, current_schema, validator)
+      def self.get_extended_uri_and_schema(s, current_schema, validator, options = {})
         uri = nil
         schema = nil
 
         if s.is_a?(Hash)
           uri = current_schema.uri
           if s['$ref']
-            ref_uri, ref_schema = JSON::Schema::RefAttribute.get_referenced_uri_and_schema(s, current_schema, validator)
+            ref_uri, ref_schema = JSON::Schema::RefAttribute.get_referenced_uri_and_schema(s, current_schema, validator, options)
             if ref_schema
               if s.size == 1 # Check if anything else apart from $ref
                 uri = ref_uri

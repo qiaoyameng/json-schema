@@ -6,7 +6,7 @@ module JSON
   class Schema
     class RefAttribute < Attribute
       def self.validate(current_schema, data, fragments, processor, validator, options = {})
-        uri, schema = get_referenced_uri_and_schema(current_schema.schema, current_schema, validator)
+        uri, schema = get_referenced_uri_and_schema(current_schema.schema, current_schema, validator, options)
 
         if schema
           schema.validate(data, fragments, processor, options)
@@ -19,7 +19,7 @@ module JSON
         end
       end
 
-      def self.get_referenced_uri_and_schema(s, current_schema, validator)
+      def self.get_referenced_uri_and_schema(s, current_schema, validator, options = {})
         uri = nil
         schema = nil
 
@@ -28,7 +28,12 @@ module JSON
         # Grab the parent schema from the schema list
         schema_key = temp_uri.to_s.split('#')[0] + '#'
 
-        ref_schema = JSON::Validator.schema_for_uri(schema_key)
+        context = options[:validation_context]
+        ref_schema = if context
+                       context.schema_for_uri(schema_key)
+                     else
+                       JSON::Validator.schema_for_uri(schema_key)
+                     end
 
         if ref_schema
           # Perform fragment resolution to retrieve the appropriate level for the schema

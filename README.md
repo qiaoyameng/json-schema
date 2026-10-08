@@ -399,6 +399,43 @@ schema = {
 errors = JSON::Validator.fully_validate(schema, {"a" => "23"})
 ```
 
+Validation contexts
+-------------------
+
+By default, schemas, custom format rules and the schema reader are kept in
+a process-wide default context, which is what the class-level
+`JSON::Validator` API operates on. When several tenants share one process
+and need conflicting definitions under the same schema URI or format name,
+an explicit `JSON::ValidationContext` can be passed with the
+`:validation_context` option. Each context holds its own schema registry,
+format rules and reader; nested `$ref` resolution and meta-schema
+validation stay within the given context.
+
+A validator binds to a snapshot of its context when it is constructed:
+concurrent registrations on the context do not affect a validation that is
+already under way, and a failed resource load never publishes a partially
+registered schema set. `JSON::ValidationContext#derive` creates a child
+context whose definitions can be replaced without modifying the parent,
+and `#clear_cache` only clears the context it is called on.
+
+```ruby
+require "json-schema"
+
+context = JSON::ValidationContext.new
+context.schema_reader = JSON::Schema::Reader.new(accept_uri: false)
+context.register_format_validator("tenant-format", -> value {
+  raise JSON::Schema::CustomFormatError, "must be 42" unless value == "42"
+})
+
+schema = { "$ref" => "http://tenant.example.com/common.json" }
+
+JSON::Validator.validate(schema, data, validation_context: context)
+
+# a child context may replace definitions without touching its parent
+child = context.derive
+child.register_format_validator("tenant-format", -> value { })
+```
+
 Validating a JSON Schema
 ------------------------
 
